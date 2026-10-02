@@ -1,0 +1,19 @@
+# SafeTriage — pinned dependencies (verified importable on Python 3.13.7, Windows)
+# Regenerate lockfile intent: these are exact pins, not ranges. See EVAL_PROTOCOL.md.
+numpy==2.2.5
+pandas==2.2.3
+scipy==1.17.1
+scikit-learn==1.6.1
+xgboost==3.4.1
+shap==0.52.0
+matplotlib==3.11.1
+pyarrow==18.1.0
+joblib==1.5.3
+PyYAML==6.0.3
+fastapi==0.139.2
+uvicorn==0.51.0
+pydantic==2.13.4
+# Optional — enables the efficient TPE + pruning hyper-parameter search in
+# safetriage/tuning.py. If it is not installed the code falls back to
+# scikit-learn's HalvingRandomSearchCV automatically.
+optuna==4.1.0

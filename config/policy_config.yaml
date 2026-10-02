@@ -1,0 +1,112 @@
+# SafeTriage policy configuration.
+# Every threshold below is referenced by name in safetriage/policy.py — the code
+# contains NO bare magic numbers. Rationale is given inline for each value.
+# Values are starting points for a research prototype, not tuned production limits.
+
+version: "policy-v1"
+
+# ---------------------------------------------------------------------------
+# Calibrated-probability thresholds (applied to the CALIBRATED probability only,
+# never the raw XGBoost margin score).
+# ---------------------------------------------------------------------------
+probability:
+  # The two probability cut points are DERIVED per dataset from the calibrated
+  # probability distribution on the validation split, so "high risk" always means
+  # "in the top few percent of calibrated risk for this data" rather than an
+  # absolute number that only makes sense at one prevalence. The pipeline writes
+  # policy_thresholds_<dataset>.json; policy.py reads it and falls back to the
+  # static values below if it is missing.
+  derive_from_data: true
+  p_low_percentile: 78.0    # >= this percentile of val calibrated prob -> "medium risk" band
+  p_high_percentile: 96.0   # >= this percentile -> "high risk" band
+  p_low: 0.15               # static fallback (used only if the derived file is absent)
+  p_high: 0.55
+
+# ---------------------------------------------------------------------------
+# Behavioural-consistency thresholds. behavioural_consistency_score is 0..1
+# where 1.0 = fully consistent with THIS customer's own history, 0.0 = anomalous.
+# behavioural_anomaly_score = 1 - behavioural_consistency_score.
+# ---------------------------------------------------------------------------
+behaviour:
+  consistency_high: 0.70   # above this the transaction "looks like the customer".
+                           # High model risk + high consistency => review / soft
+                           # block, NOT a blind hard block (could be a model error
+                           # or a legitimate but unusual purchase).
+  anomaly_high: 0.60       # above this the behaviour is strongly out of pattern.
+                           # High model risk + high anomaly + confident model
+                           # => ESCALATE.
+
+# ---------------------------------------------------------------------------
+# Model-disagreement uncertainty proxy (|p_xgb_calibrated - p_rf|, normalised).
+# This is NOT epistemic uncertainty; it is a disagreement proxy only.
+# ---------------------------------------------------------------------------
+uncertainty:
+  uncertainty_high: 0.50   # above this the two models disagree materially; the
+                           # case is routed to STEP_UP_REVIEW instead of an
+                           # automated clear or block.
+
+# ---------------------------------------------------------------------------
+# Behavioural-consistency component weights (must sum to 1.0). Used by
+# safetriage/behavior.py to combine the six sub-scores.
+# ---------------------------------------------------------------------------
+behaviour_weights:
+  amount_consistency: 0.22
+  time_consistency: 0.13
+  device_consistency: 0.20
+  beneficiary_consistency: 0.22
+  location_consistency: 0.10
+  velocity_consistency: 0.13
+
+# ---------------------------------------------------------------------------
+# Review-capacity model. The policy engine is capacity-aware: when the projected
+# STEP_UP_REVIEW volume exceeds capacity, the lowest-marginal-value review items
+# are downgraded to AUTO_CLEAR and the concession is logged.
+# ---------------------------------------------------------------------------
+capacity:
+  analyst_capacity_per_1k: 120  # sustainable manual reviews per 1,000 transactions.
+                                # Sized to the review demand the tuned models
+                                # actually produce (IEEE ~50/1k, synthetic ~150/1k
+                                # because that dataset is deliberately ambiguous).
+                                # The Policy Lab sweeps this from 10..200.
+  headroom_fraction: 0.10       # keep 10% of capacity free for ESCALATE overflow.
+
+# ---------------------------------------------------------------------------
+# Cost parameters for the expected-cost calculation and the Policy Lab sweep.
+# Units are "cost points" (relative, not currency).
+# ---------------------------------------------------------------------------
+costs:
+  fraud_loss_cost: 100.0        # missed fraud that reaches completion.
+  false_positive_cost: 8.0      # legitimate transaction hard-blocked (chargeback
+                                # of goodwill, support contact, churn risk).
+  review_cost: 1.0              # one analyst manual review (the unit cost).
+  customer_friction_cost: 2.0   # step-up challenge shown to a legitimate customer.
+
+# ---------------------------------------------------------------------------
+# Evaluation protocol knobs (Phase 9). The baseline threshold is chosen on the
+# VALIDATION split to hit this recall, then frozen and applied to the test split.
+# ---------------------------------------------------------------------------
+evaluation:
+  baseline_target_recall: 0.80
+
+# ---------------------------------------------------------------------------
+# Model training + hyper-parameter optimisation (Phase 2).
+# Everything here operates on the TRAIN split only. The test split is never
+# touched by feature-fitting, tuning, calibration or threshold selection.
+# ---------------------------------------------------------------------------
+training:
+  hpo_trials: 20               # "epochs" of tuning: configurations evaluated by CV
+  cv_folds: 3                  # stratified CV folds inside each tuning trial
+  tune_subsample_cap: 120000   # large datasets are tuned on a stratified subsample
+                               # (all fraud rows kept); the final model still
+                               # refits on the full TRAIN split
+  boost_rounds_cap: 3000       # early-stopping ceiling for the final XGBoost fit
+  early_stopping_rounds: 80    # stop when validation AUC has not improved for this many rounds
+  overfit_gap_warn: 0.10       # warn if (train ROC-AUC - CV ROC-AUC) exceeds this
+
+serving:
+  # The dashboard and /score serve the EVALUATED model (fit on TRAIN) so that
+  # per-transaction scores stay consistent with evaluation_<ds>.json. A second
+  # artifact xgb_<ds>_full.joblib is refit on the WHOLE dataset with the same
+  # tuned hyper-parameters for completeness; set this true to serve that instead
+  # (its numbers will then not match the held-out evaluation).
+  use_full_refit: false

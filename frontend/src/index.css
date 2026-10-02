@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: #f6f7f9;
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* thin scrollbars for the data tables */
+.thin-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+.thin-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+.thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+table.grid-table { border-collapse: separate; border-spacing: 0; }
+table.grid-table th { position: sticky; top: 0; background: #f1f5f9; z-index: 1; }
